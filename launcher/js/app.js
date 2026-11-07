@@ -16,6 +16,8 @@ const native = {
   },
 };
 
+let romFiles = null;
+
 window.launcher = {
   setFps(value) {
     document.getElementById("fps-counter").textContent = `FPS ${value}`;
@@ -25,14 +27,30 @@ window.launcher = {
     ROM_FOLDER.gameCount = gameCount;
     renderRom();
   },
+  setRomFiles(files) {
+    romFiles = new Set(files);
+    renderAll();
+  },
+  setCover(gameId, url) {
+    const game = GAMES.find((g) => g.id === gameId);
+    if (!game) return;
+    game.cover = url;
+    renderAll();
+  },
 };
 
-function loadSettings() {
+function readJson(text) {
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+    return JSON.parse(text || "{}");
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return {};
   }
+}
+
+function loadSettings() {
+  const local = readJson(localStorage.getItem(SETTINGS_KEY));
+  const native = readJson(window.Android ? window.Android.loadSettings() : null);
+  return { ...DEFAULT_SETTINGS, ...local, ...native };
 }
 
 function saveSettings() {
@@ -95,8 +113,8 @@ function handleAction(action) {
 
 function play(gameId) {
   const game = GAMES.find((g) => g.id === gameId);
-  native.call("launchGame", gameId);
-  showToast(`Memuat ${game.title}...`);
+  const launched = window.Android ? window.Android.launchGame(game.rom) : true;
+  showToast(launched ? `Memuat ${game.title}...` : `ROM "${game.rom}" tidak ditemukan atau WatermelonDS belum terpasang`);
 }
 
 function cycleGame() {

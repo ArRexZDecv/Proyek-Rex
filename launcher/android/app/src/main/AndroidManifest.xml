@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <queries>
+        <package android:name="me.magnum.melondualds" />
+        <package android:name="me.magnum.melondualds.nightly" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:label="Rex Launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.RexLauncher">
+
+        <activity
+            android:name=".LauncherActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
