@@ -4,10 +4,14 @@
     <queries>
         <package android:name="me.magnum.melondualds" />
         <package android:name="me.magnum.melondualds.nightly" />
+        <intent>
+            <action android:name="me.magnum.melondualds.LAUNCH_ROM" />
+        </intent>
     </queries>
 
     <application
         android:allowBackup="false"
+        android:fullBackupContent="false"
         android:label="Rex Launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.RexLauncher">

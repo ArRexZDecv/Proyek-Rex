@@ -9,6 +9,7 @@ import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.MimeTypeMap
 import android.webkit.WebView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -64,16 +65,53 @@ class LauncherBridge(
 
     @JavascriptInterface
     fun launchGame(romFileName: String): Boolean {
-        val romUri = romIndex[romFileName] ?: return false
-        val watermelon = installedWatermelonPackage() ?: return false
+        val entry = findRomEntry(romFileName) ?: run {
+            Log.w(TAG, "File ROM tidak ditemukan di indeks: $romFileName")
+            return false
+        }
+        val matchedFileName = entry.key
+        val romUri = entry.value
+        val watermelon = installedWatermelonPackage() ?: run {
+            Log.w(TAG, "WatermelonDS tidak ditemukan pada perangkat")
+            return false
+        }
 
-        val intent = Intent("$watermelon.LAUNCH_ROM")
-            .setClassName(watermelon, WATERMELON_EMULATOR_ACTIVITY)
-            .setData(romUri)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // Susun path file ROM lengkap agar WatermelonDS dapat menentukan direktori penyimpanan save file (.dsv/.sav)
+        // dan mencegah save file tersimpan di folder root aplikasi.
+        val fullRomPath = if (romFolderPath.isNotEmpty()) {
+            "$romFolderPath/$matchedFileName"
+        } else {
+            matchedFileName
+        }
+
+        val intent = Intent(WATERMELON_ACTION_LAUNCH_ROM).apply {
+            setClassName(watermelon, WATERMELON_EMULATOR_ACTIVITY)
+            setData(romUri)
+            putExtra("PATH", fullRomPath)
+            putExtra("uri", romUri.toString())
+            // Sertakan preferensi konfigurasi emulator
+            putExtra("renderer", settings.getRenderer())
+            putExtra("targetFps", settings.getTargetFps())
+            putExtra("overlayVisible", settings.isOverlayVisible())
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        }
+
         activity.runOnUiThread {
-            runCatching { activity.startActivity(intent) }
-                .onFailure { Log.w(TAG, "Gagal membuka emulator", it) }
+            runCatching {
+                activity.grantUriPermission(
+                    watermelon,
+                    romUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+                activity.startActivity(intent)
+            }.onFailure { error ->
+                Log.w(TAG, "Gagal membuka emulator WatermelonDS", error)
+                Toast.makeText(
+                    activity,
+                    "Gagal membuka emulator: ${error.localizedMessage ?: "Aplikasi tidak ditemukan"}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
         return true
     }
@@ -91,6 +129,13 @@ class LauncherBridge(
     fun saveSettings(json: String) {
         runCatching { settings.save(json) }
             .onFailure { Log.w(TAG, "Pengaturan tidak valid", it) }
+    }
+
+    @JavascriptInterface
+    fun requestInitialState() {
+        activity.runOnUiThread {
+            publishState()
+        }
     }
 
     @JavascriptInterface
@@ -116,10 +161,32 @@ class LauncherBridge(
         }
     }
 
-    fun pushFps(fps: Int) = push("window.launcher.setFps($fps)")
+    fun pushFps(fps: Int) = push("window.launcher && window.launcher.setFps($fps)")
+
+    private fun findRomEntry(romFileName: String): Map.Entry<String, Uri>? {
+        // 1. Pencocokan langsung (exact match)
+        romIndex.entries.firstOrNull { it.key == romFileName }?.let { return it }
+
+        // 2. Pencocokan case-insensitive
+        romIndex.entries.firstOrNull { it.key.equals(romFileName, ignoreCase = true) }?.let { return it }
+
+        // 3. Pencocokan nama dasar tanpa ekstensi .nds
+        val baseName = romFileName.removeSuffix(".nds")
+        romIndex.entries.firstOrNull {
+            it.key.removeSuffix(".nds").equals(baseName, ignoreCase = true)
+        }?.let { return it }
+
+        // 4. Pencocokan substring toleran
+        return romIndex.entries.firstOrNull {
+            it.key.contains(baseName, ignoreCase = true) || baseName.contains(it.key.removeSuffix(".nds"), ignoreCase = true)
+        }
+    }
 
     private fun onFolderPicked(treeUri: Uri) {
-        activity.contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        activity.contentResolver.takePersistableUriPermission(
+            treeUri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        )
         prefs.edit().putString(KEY_ROM_TREE, treeUri.toString()).apply()
         romFolderPath = displayPath(treeUri)
         scanAsync(treeUri)
@@ -178,6 +245,8 @@ class LauncherBridge(
                 true
             } catch (e: PackageManager.NameNotFoundException) {
                 false
+            } catch (e: Throwable) {
+                false
             }
         }
 
@@ -203,8 +272,8 @@ class LauncherBridge(
         private const val KEY_ROM_TREE = "romTreeUri"
         private const val COVER_KEY_PREFIX = "cover:"
 
-        // Sesuai manifest WatermelonDS: activity emulator di package me.magnum.melonds,
-        // action dibentuk dari applicationId (LAUNCH_ROM), varian nightly memakai suffix .nightly.
+        // Action resmi dan target activity WatermelonDS sesuai dokumentasi manifest
+        private const val WATERMELON_ACTION_LAUNCH_ROM = "me.magnum.melondualds.LAUNCH_ROM"
         private const val WATERMELON_EMULATOR_ACTIVITY = "me.magnum.melonds.ui.emulator.EmulatorActivity"
         private val WATERMELON_PACKAGES = listOf("me.magnum.melondualds", "me.magnum.melondualds.nightly")
     }

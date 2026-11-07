@@ -37,6 +37,10 @@ window.launcher = {
     game.cover = url;
     renderAll();
   },
+  setSettings(newSettings) {
+    state.settings = { ...state.settings, ...newSettings };
+    renderAll();
+  },
 };
 
 function readJson(text) {
@@ -47,10 +51,25 @@ function readJson(text) {
   }
 }
 
+/**
+ * Menggabungkan pengaturan dari default, localStorage, dan native storage SharedPreferences.
+ * Native storage diprioritaskan di atas localStorage dan default.
+ */
 function loadSettings() {
   const local = readJson(localStorage.getItem(SETTINGS_KEY));
-  const native = readJson(window.Android ? window.Android.loadSettings() : null);
-  return { ...DEFAULT_SETTINGS, ...local, ...native };
+  let nativeData = {};
+  if (window.Android && typeof window.Android.loadSettings === "function") {
+    nativeData = readJson(window.Android.loadSettings());
+  }
+
+  const cleanNative = {};
+  for (const [key, val] of Object.entries(nativeData)) {
+    if (val !== undefined && val !== null && val !== "") {
+      cleanNative[key] = val;
+    }
+  }
+
+  return { ...DEFAULT_SETTINGS, ...local, ...cleanNative };
 }
 
 function saveSettings() {
@@ -113,6 +132,7 @@ function handleAction(action) {
 
 function play(gameId) {
   const game = GAMES.find((g) => g.id === gameId);
+  if (!game) return;
   const launched = window.Android ? window.Android.launchGame(game.rom) : true;
   showToast(launched ? `Memuat ${game.title}...` : `ROM "${game.rom}" tidak ditemukan atau WatermelonDS belum terpasang`);
 }
@@ -191,6 +211,22 @@ function tickClock() {
     month: "short",
   });
 }
+
+function init() {
+  state.settings = loadSettings();
+  renderAll();
+  native.call("requestInitialState");
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
+
+window.addEventListener("load", () => {
+  native.call("requestInitialState");
+});
 
 tickClock();
 setInterval(tickClock, 1000);
